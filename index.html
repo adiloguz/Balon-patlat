@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Balon Patlatma V1</title>
+    <style>
+        /* Temel Sıfırlama ve Sayfa Ayarları */
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; outline: none; /* Dokunma odağını kaldır */ }
+        html, body { width: 100%; height: 100%; overflow: hidden; font-family: 'Arial', sans-serif; background: linear-gradient(to bottom, #6DD5FA 0%, #2980B9 100%); color: white; touch-action: manipulation; }
+
+        /* Oyun Konteyneri */
+        #game-container { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: transform 0.1s ease-out; }
+        #game-container.shake { animation: screenShake 0.15s linear; }
+        @keyframes screenShake {
+            0%, 100% { transform: translate(0, 0) rotate(0); }
+            25% { transform: translate(-2px, 1px) rotate(-0.3deg); }
+            50% { transform: translate(2px, -1px) rotate(0.3deg); }
+            75% { transform: translate(-1px, 0px) rotate(0.1deg); }
+        }
+
+        /* Oyun Alanı */
+        #game-area { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; cursor: pointer; z-index: 1; }
+
+        /* --- Balon Stili ve Tıklama Alanı --- */
+        .bubble {
+            position: absolute; bottom: -200px; border-radius: 50%;
+            background: radial-gradient(circle at 65% 15%, white 1px, rgba(255, 255, 255, 0.5) 4%, rgba(255, 0, 0, 0.8) 30%, rgba(139, 0, 0, 0.9) 100%);
+            box-shadow: inset -10px -10px 20px rgba(0, 0, 0, 0.2), 0px 10px 20px rgba(0, 0, 0, 0.3);
+            cursor: pointer; display: flex; justify-content: center; align-items: center;
+            font-size: clamp(16px, 4vw, 24px); font-weight: bold; text-shadow: 1px 1px 1px rgba(0,0,0,0.6);
+            will-change: transform, bottom, opacity; /* Performans için */
+            /* Geçiş animasyonu yok, JS ile hareket */
+            transition: none;
+        }
+        .bubble::before { /* Tıklama Alanı */
+            content: ''; position: absolute; top: -12px; left: -12px; right: -12px; bottom: -12px; border-radius: 50%;
+        }
+
+        /* Renkler */
+        .bubble[data-color="blue"] { background: radial-gradient(circle at 65% 15%, white 1px, rgba(255, 255, 255, 0.5) 4%, rgba(0, 191, 255, 0.8) 30%, rgba(0, 0, 139, 0.9) 100%); }
+        .bubble[data-color="green"] { background: radial-gradient(circle at 65% 15%, white 1px, rgba(255, 255, 255, 0.5) 4%, rgba(50, 205, 50, 0.8) 30%, rgba(0, 100, 0, 0.9) 100%); }
+        .bubble[data-color="yellow"] { background: radial-gradient(circle at 65% 15%, white 1px, rgba(255, 255, 255, 0.7) 4%, rgba(255, 255, 0, 0.8) 30%, rgba(204, 153, 0, 0.9) 100%); }
+        .bubble[data-color="purple"] { background: radial-gradient(circle at 65% 15%, white 1px, rgba(255, 255, 255, 0.6) 4%, rgba(186, 85, 211, 0.85) 30%, rgba(75, 0, 130, 0.9) 100%); }
+        .bubble[data-color="black"] { background: radial-gradient(circle at 65% 15%, #ccc 1px, rgba(100, 100, 100, 0.8) 4%, rgba(50, 50, 50, 0.9) 30%, rgba(0, 0, 0, 1) 100%); color: #ff4d4d; }
+        .bubble[data-color="gold"] { background: radial-gradient(circle at 65% 15%, white 1px, rgba(255, 255, 200, 0.8) 4%, rgba(255, 215, 0, 0.9) 30%, rgba(184, 134, 11, 1) 100%); color: #fff; animation: pulseGold 1.5s infinite ease-in-out; }
+        .bubble[data-color="grey"] { background: radial-gradient(circle at 65% 15%, #eee 1px, rgba(180, 180, 180, 0.8) 4%, rgba(130, 130, 130, 0.9) 30%, rgba(80, 80, 80, 1) 100%); color: #fff; }
+        @keyframes pulseGold {
+            0%, 100% { transform: scale(1); box-shadow: inset -10px -10px 20px rgba(0, 0, 0, 0.2), 0px 10px 20px rgba(0, 0, 0, 0.3), 0 0 10px #FFD700; }
+            50% { transform: scale(1.05); box-shadow: inset -10px -10px 20px rgba(0, 0, 0, 0.1), 0px 15px 25px rgba(0, 0, 0, 0.4), 0 0 20px #FFEC8B; }
+        }
+
+        /* --- Geliştirilmiş Patlama Animasyonu --- */
+        .bubble.popped {
+            animation: enhancedBubblePop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.5) forwards;
+            pointer-events: none;
+            /* İçeriği hemen gizle, arka planı şeffaf yap */
+            background: transparent !important; /* Important gerekli olabilir */
+            box-shadow: none !important;
+            border: none !important;
+            color: transparent !important; /* Yazıyı da gizle */
+            text-shadow: none !important;
+        }
+        @keyframes enhancedBubblePop {
+             0% { transform: scale(1); opacity: 1; filter: brightness(1); }
+             30% { transform: scale(1.3); opacity: 0.9; filter: brightness(1.3); }
+             70% { transform: scale(0.8); opacity: 0.7; filter: brightness(1); }
+             100% { transform: scale(0.9); opacity: 0; filter: blur(3px); }
+         }
+
+
+        /* Patlama Parçacık Stili */
+        .particle {
+            position: absolute; border-radius: 50%; pointer-events: none; z-index: 2; opacity: 1;
+            animation: particleFlyOutImproved linear forwards;
+        }
+        @keyframes particleFlyOutImproved {
+             0% { transform: translate(0, 0) scale(1); opacity: 1; }
+             60% { opacity: 0.7; } /* Biraz daha uzun süre görünür kalsın */
+             100% { transform: translate(var(--tx, 0), var(--ty, 0)) scale(0); opacity: 0; }
+         }
+
+
+        /* --- UI Elemanları --- */
+        .ui-element { position: absolute; top: 15px; background-color: rgba(0, 0, 0, 0.65); padding: 10px 18px; border-radius: 10px; font-size: clamp(17px, 4.2vw, 25px); z-index: 10; text-shadow: 1px 1px 3px black; transition: all 0.2s ease; }
+        #score-board { left: 15px; }
+        #timer-board { right: 15px; }
+
+        /* Kombo Göstergesi */
+        #combo-board { left: 50%; transform: translateX(-50%) scale(1); background-color: rgba(255, 165, 0, 0.8); color: white; font-weight: bold; opacity: 0; pointer-events: none; transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.2s ease; box-shadow: 0 0 0px 0px rgba(255, 255, 255, 0); }
+        #combo-board.visible { opacity: 1; transform: translateX(-50%) scale(1.1); pointer-events: auto; }
+        #combo-board.pulse { animation: comboPulse 0.35s ease-out; }
+        @keyframes comboPulse { /* Biraz daha hızlı ve belirgin */
+             0% { transform: translateX(-50%) scale(1.1); box-shadow: 0 0 6px 3px rgba(255, 255, 255, 0.6); }
+             60% { transform: translateX(-50%) scale(1.2); box-shadow: 0 0 10px 5px rgba(255, 255, 255, 0.3); }
+             100% { transform: translateX(-50%) scale(1.1); box-shadow: 0 0 0px 0px rgba(255, 255, 255, 0); }
+         }
+
+        #timer-board.timer-warning { background-color: rgba(255, 0, 0, 0.8); color: white; animation: pulseWarning 1s infinite ease-in-out alternate; }
+        @keyframes pulseWarning { from { transform: scale(1); } to { transform: scale(1.05); } }
+
+        /* Skor Popupları */
+        .score-popup { position: absolute; font-size: clamp(16px, 4vw, 22px); font-weight: bold; color: #FFD700; text-shadow: 1px 1px 2px black; pointer-events: none; animation: floatUpFadeOut 0.8s ease-out forwards; z-index: 5; white-space: nowrap; transform: translateX(-50%); }
+        .score-popup.penalty { color: #ff4d4d; }
+        .score-popup.combo { color: #FFB74D; font-size: clamp(18px, 4.5vw, 26px); }
+        @keyframes floatUpFadeOut { 0% { transform: translate(-50%, 0); opacity: 1; } 100% { transform: translate(-50%, -60px); opacity: 0; } }
+
+        /* Başlangıç, Bitiş Ekranları ve Modal (Stiller Öncekiyle Aynı) */
+        .overlay-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.75); display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; z-index: 20; padding: 20px; opacity: 1; transition: opacity 0.5s ease; }
+        .overlay-screen.hidden { opacity: 0; pointer-events: none; }
+        .overlay-screen h1 { font-size: clamp(28px, 8vw, 48px); margin-bottom: 20px; text-shadow: 2px 2px 4px black; }
+        .overlay-screen p { font-size: clamp(18px, 5vw, 28px); margin-bottom: 20px; line-height: 1.4;}
+        .overlay-screen button { padding: 15px 30px; font-size: clamp(18px, 5vw, 26px); cursor: pointer; color: white; border: none; border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3); transition: background-color 0.2s ease, transform 0.1s ease; margin-top: 15px; }
+        .overlay-screen button:active { transform: scale(0.95); }
+        #start-button { background-color: #4CAF50; } #start-button:active { background-color: #45a049; }
+        #developer-button { background-color: #2196F3; } #developer-button:active { background-color: #1e88e5; }
+        #restart-button { background-color: #f44336; } #restart-button:active { background-color: #da190b; }
+        #final-score, #high-score, #start-high-score, #end-high-score { font-weight: bold; color: #FFD700; }
+
+        #developer-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.85); display: flex; justify-content: center; align-items: center; z-index: 30; padding: 15px; opacity: 0; pointer-events: none; transition: opacity 0.3s ease-in-out; }
+        #developer-modal.visible { opacity: 1; pointer-events: auto; }
+        .profile-card { background: #fff; color: #333; border-radius: 15px; padding: 30px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); max-width: 400px; width: 90%; text-align: center; position: relative; transform: scale(0.9); transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        #developer-modal.visible .profile-card { transform: scale(1); }
+        .profile-card img { width: 120px; height: 120px; border-radius: 50%; border: 5px solid #4CAF50; margin-bottom: 15px; object-fit: cover; }
+        .profile-card h2 { margin-bottom: 5px; color: #1a1a1a; font-size: clamp(22px, 6vw, 28px); }
+        .profile-card .title { color: #555; font-style: italic; margin-bottom: 15px; font-size: clamp(15px, 4vw, 18px); }
+        .profile-card .bio { color: #444; margin-bottom: 20px; line-height: 1.6; font-size: clamp(14px, 3.5vw, 16px); }
+        .profile-card .social-links a { display: inline-block; margin: 0 10px; color: #4CAF50; font-size: 24px; transition: transform 0.2s ease; text-decoration: none; }
+        .profile-card .social-links a:hover { transform: scale(1.2); color: #45a049; }
+        #close-modal-button { position: absolute; top: 10px; right: 15px; background: none; border: none; font-size: 30px; color: #aaa; cursor: pointer; transition: color 0.2s ease; }
+        #close-modal-button:hover { color: #555; }
+
+        /* Bulut Stilleri (Öncekiyle Aynı) */
+        .cloud { position: absolute; background: white; border-radius: 50%; opacity: 0.2; pointer-events: none; z-index: 0; filter: blur(4px); animation: moveCloud linear infinite; }
+        .cloud.c1 { width: 160px; height: 55px; top: 12%; animation-duration: 45s; animation-delay: -8s; }
+        .cloud.c2 { width: 110px; height: 40px; top: 35%; animation-duration: 55s; animation-delay: -25s; }
+        .cloud.c3 { width: 210px; height: 65px; top: 65%; animation-duration: 40s; animation-delay: -15s; }
+        .cloud.c4 { width: 90px; height: 30px; top: 80%; animation-duration: 60s; animation-delay: -5s; }
+        @keyframes moveCloud { 0% { transform: translateX(-250px); } 100% { transform: translateX(calc(100vw + 250px)); } }
+
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <!-- UI Elemanları -->
+        <div id="score-board" class="ui-element">Skor: <span id="score">0</span></div>
+        <div id="timer-board" class="ui-element">Süre: <span id="timer">60</span>s</div>
+        <div id="combo-board" class="ui-element"> <span id="combo-multiplier">x1</span></div>
+
+        <!-- Oyun Alanı -->
+        <div id="game-area">
+            <div class="cloud c1"></div> <div class="cloud c2"></div> <div class="cloud c3"></div> <div class="cloud c4"></div>
+            <!-- Dinamik içerik buraya -->
+        </div>
+
+        <!-- Ekranlar -->
+        <div id="start-screen" class="overlay-screen">
+            <h1>Balon Patlatma V1</h1> <br>
+            <h2>Deneme Projesi</h2>
+            <p>Eğlenceli! ve basit bir.balon patlatma oyunu</p>
+            <p style="font-size: clamp(16px, 4vw, 22px);">
+                💥 Yeni Patlama Efektleri! <br> ✨ Komboyu Koru! <br> 💣 Bombalara Dikkat!
+            </p>
+            <p>En Yüksek Skor: <span id="start-high-score">0</span></p>
+            <button id="start-button">Başla</button>
+            <button id="developer-button">Geliştirici Bilgisi</button>
+        </div>
+        <div id="game-over-screen" class="overlay-screen hidden">
+             <h1>Oyun Bitti!</h1>
+             <p>Skorun: <span id="final-score">0</span></p>
+             <p>En Yüksek Skor: <span id="end-high-score">0</span></p>
+             <button id="restart-button">Yeniden Başla</button>
+         </div>
+
+        <!-- Geliştirici Modalı (İçerik Öncekiyle Aynı) -->
+        <div id="developer-modal">
+             <div class="profile-card">
+                 <button id="close-modal-button">×</button>
+                 <h1>Geliştirici</h1> <hr>
+                 <img src="profile.jpg" alt="Geliştirici Fotoğrafı">
+                 <h2>Adil Oğuz</h2>
+                 <p class="title">Web Geliştirici & Mobil uygulama geliştiricisi</p>
+                 <p class="bio">V1 Düzeltilmiş Sürüm! İyi eğlenceler!</p>
+                 <div class="social-links">
+                     <a href="#" target="_blank" title="LinkedIn">🔗</a> <a href="#" target="_blank" title="GitHub">💻</a> <a href="#" target="_blank" title="Website">🌐</a>
+                 </div>
+             </div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elementleri
+        const gameContainer = document.getElementById('game-container');
+        const gameArea = document.getElementById('game-area');
+        const scoreDisplay = document.getElementById('score');
+        const timerDisplay = document.getElementById('timer');
+        const timerBoard = document.getElementById('timer-board');
+        const comboBoard = document.getElementById('combo-board');
+        const comboMultiplierDisplay = document.getElementById('combo-multiplier');
+        const startScreen = document.getElementById('start-screen');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const startButton = document.getElementById('start-button');
+        const restartButton = document.getElementById('restart-button');
+        const finalScoreDisplay = document.getElementById('final-score');
+        const startHighScoreDisplay = document.getElementById('start-high-score');
+        const endHighScoreDisplay = document.getElementById('end-high-score');
+        const developerButton = document.getElementById('developer-button');
+        const developerModal = document.getElementById('developer-modal');
+        const closeModalButton = document.getElementById('close-modal-button');
+
+
+        // Oyun Değişkenleri
+        let score = 0;
+        let timeLeft = 60;
+        let timerInterval = null;
+        let bubbleInterval = null;
+        let isGameOver = true;
+        let bubblesOnScreen = new Map();
+        let bubbleCounter = 0;
+        let highScore = localStorage.getItem('bubblePopHighScoreV4r') || 0; // r: revised v4
+        let animationFrameId = null;
+        let comboCount = 0;
+        let lastPopTime = 0;
+        let comboResetTimer = null;
+        const COMBO_TIMEOUT = 1700;
+        const MAX_COMBO_MULTIPLIER = 6;
+        let isShaking = false;
+        let shakeTimeout = null; // Ekran titremesi için timeout
+
+        // Oyun Ayarları
+        const INITIAL_TIME = 60;
+        // Biraz daha dengeli ayarlar
+        const BUBBLE_SPAWN_RATE_START = 900; // Başlangıç biraz yavaşladı
+        const BUBBLE_SPAWN_RATE_END = 250;   // Son hız iyi
+        const BUBBLE_MIN_SPEED = 1.6;        // Minimum hız sabit
+        const BUBBLE_MAX_SPEED = 4.3;        // Maksimum hız biraz azaldı
+        const BUBBLE_MIN_SIZE_VW = 8;
+        const BUBBLE_MAX_SIZE_VW = 20;       // Maksimum boyut biraz küçültüldü (aşırı büyüktü)
+        const POINTS_PER_BUBBLE = 10;
+        const BONUS_POINTS = 40;
+        const PENALTY_POINTS = -50;
+        const EXTRA_TIME_POINTS = 5;
+        const BOMB_POINTS = 5;
+        const BOMB_RADIUS = 115;             // Yarıçap sabit
+        const PARTICLES_PER_POP = 8;        // Parçacık sayısı düşürüldü (performans)
+        const SCREEN_SHAKE_DURATION = 150; // Titreme süresi kısaldı
+
+        // Balon Tipleri Olasılıkları (Tekrar dengelendi)
+        const BUBBLE_TYPES = [
+            { color: 'red',    probability: 0.19, points: POINTS_PER_BUBBLE, text: '' },
+            { color: 'blue',   probability: 0.19, points: POINTS_PER_BUBBLE, text: '' },
+            { color: 'green',  probability: 0.16, points: POINTS_PER_BUBBLE, text: '' },
+            { color: 'yellow', probability: 0.13, points: POINTS_PER_BUBBLE, text: '' },
+            { color: 'purple', probability: 0.09, points: BONUS_POINTS,      text: `+${BONUS_POINTS}` },
+            { color: 'gold',   probability: 0.07, points: EXTRA_TIME_POINTS, text: `+${EXTRA_TIME_POINTS}s`, type: 'gold' },
+            { color: 'black',  probability: 0.07, points: PENALTY_POINTS,    text: `${PENALTY_POINTS}`, type: 'penalty' },
+            { color: 'grey',   probability: 0.10, points: BOMB_POINTS,       text: '💣', type: 'bomb' },
+        ];
+
+        // --- Yardımcı Fonksiyonlar ---
+        function random(min, max) { return Math.random() * (max - min) + min; }
+        function randomInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+        function getRandomBubbleType() { /* Öncekiyle aynı */
+             const rand = Math.random(); let cumulativeProbability = 0;
+             for (const type of BUBBLE_TYPES) {
+                 cumulativeProbability += type.probability;
+                 if (rand < cumulativeProbability) { return { ...type, type: type.type || type.color }; }
+             }
+             const fallbackType = BUBBLE_TYPES[0]; return { ...fallbackType, type: fallbackType.type || fallbackType.color };
+        }
+        function getDistance(x1, y1, x2, y2) { /* Öncekiyle aynı */ const dx = x1 - x2; const dy = y1 - y2; return Math.sqrt(dx * dx + dy * dy); }
+        window.requestAnimationFrame = window.requestAnimationFrame || window.webkitRequestAnimationFrame || window.mozRequestAnimationFrame || window.msRequestAnimationFrame;
+        window.cancelAnimationFrame = window.cancelAnimationFrame || window.webkitCancelAnimationFrame || window.mozCancelAnimationFrame || window.msCancelAnimationFrame;
+
+        // --- Yüksek Skor ---
+        function updateHighScoreDisplay() { /* Öncekiyle aynı */
+            highScore = localStorage.getItem('bubblePopHighScoreV4r') || 0; startHighScoreDisplay.textContent = highScore; endHighScoreDisplay.textContent = highScore;
+        }
+        // --- Modal Kontrolleri ---
+        function showDeveloperModal() { developerModal.classList.add('visible'); }
+        function hideDeveloperModal() { developerModal.classList.remove('visible'); }
+
+        // --- Skor Geri Bildirimi ---
+        function showScorePopup(points, x, y, isTime = false, isCombo = false, isPenalty = false) { /* Öncekiyle aynı */
+            const popup = document.createElement('span'); popup.classList.add('score-popup');
+            let text = isTime ? `+${points}s` : (points > 0 ? '+' : '') + points;
+            if (isCombo) popup.classList.add('combo'); if (isPenalty) popup.classList.add('penalty');
+            popup.textContent = text; popup.style.left = `${x}px`; popup.style.top = `${y - 25}px`;
+            gameArea.appendChild(popup);
+            popup.addEventListener('animationend', () => { if (popup.parentNode) popup.parentNode.removeChild(popup); });
+            setTimeout(() => { if (popup.parentNode) popup.parentNode.removeChild(popup); }, 850);
+        }
+
+        // --- Ekran Titremesi ---
+        function triggerScreenShake() {
+             // Eğer zaten bir titreme timeout'u varsa, onu temizleyip yenisini başlatma (ard arda hızlı tıklamada birleşme)
+             clearTimeout(shakeTimeout);
+             gameContainer.classList.add('shake');
+             shakeTimeout = setTimeout(() => {
+                 gameContainer.classList.remove('shake');
+             }, SCREEN_SHAKE_DURATION);
+        }
+
+
+        // --- Patlama Parçacıkları ---
+        function createParticles(x, y, color) { /* Öncekiyle aynı, süre/boyut JS ile */
+            const numParticles = PARTICLES_PER_POP;
+            for (let i = 0; i < numParticles; i++) {
+                const particle = document.createElement('div'); particle.classList.add('particle');
+                const size = random(4, 8); // Boyut aralığı
+                particle.style.width = `${size}px`; particle.style.height = `${size}px`;
+                particle.style.left = `${x}px`; particle.style.top = `${y}px`;
+                particle.style.backgroundColor = color.startsWith('rgb') ? color : '#ffffff';
+                const angle = Math.random() * Math.PI * 2; const distance = random(35, 80);
+                const tx = Math.cos(angle) * distance; const ty = Math.sin(angle) * distance;
+                const duration = random(0.4, 0.8); // Süre aralığı
+                particle.style.setProperty('--tx', `${tx}px`); particle.style.setProperty('--ty', `${ty}px`);
+                particle.style.animationDuration = `${duration}s`;
+                gameArea.appendChild(particle);
+                const finalDuration = duration * 1000 + 50;
+                particle.addEventListener('animationend', () => { if (particle.parentNode) particle.parentNode.removeChild(particle); });
+                setTimeout(() => { if (particle.parentNode) particle.parentNode.removeChild(particle); }, finalDuration);
+            }
+        }
+
+        // --- Kombo Yönetimi ---
+        function resetCombo() { /* Öncekiyle aynı, pulse kaldırma dahil */
+            comboCount = 0; comboBoard.classList.remove('visible', 'pulse'); // pulse'ı da kaldır
+            clearTimeout(comboResetTimer);
+        }
+        function updateCombo() { /* Öncekiyle aynı, reflow vs. dahil */
+            const now = Date.now(); clearTimeout(comboResetTimer);
+            comboCount++; lastPopTime = now;
+            const multiplier = Math.min(comboCount, MAX_COMBO_MULTIPLIER);
+            if (multiplier > 1) {
+                comboMultiplierDisplay.textContent = `x${multiplier}`;
+                comboBoard.classList.add('visible');
+                comboBoard.classList.remove('pulse'); void comboBoard.offsetWidth; comboBoard.classList.add('pulse');
+                // Titreme burada olmasın, handlePop karar versin
+            }
+            comboResetTimer = setTimeout(resetCombo, COMBO_TIMEOUT);
+            return multiplier;
+        }
+
+        // --- Balon İşlemleri ---
+        function removeBubble(bubbleId, wasPopped = true) { /* Öncekiyle aynı */
+            const bubbleData = bubblesOnScreen.get(bubbleId);
+            if (bubbleData) {
+                if (bubbleData.element.parentNode) bubbleData.element.parentNode.removeChild(bubbleData.element);
+                bubblesOnScreen.delete(bubbleId);
+                if (!wasPopped) resetCombo();
+            }
+        }
+        function createBubble() { /* Neredeyse aynı, boyut aralığı/hız/spawn güncel */
+             if (isGameOver) return;
+             const bubbleId = bubbleCounter++;
+             const bubble = document.createElement('div'); bubble.classList.add('bubble'); bubble.dataset.id = bubbleId;
+
+             const sizeVW = random(BUBBLE_MIN_SIZE_VW, BUBBLE_MAX_SIZE_VW);
+             const baseSizePX = (sizeVW / 100) * Math.min(window.innerWidth, 800);
+             const initialBottomOffset = Math.min(180 + (baseSizePX / 2) , 250);
+             bubble.style.bottom = `-${initialBottomOffset}px`;
+             bubble.style.width = `${baseSizePX}px`; bubble.style.height = `${baseSizePX}px`;
+             const margin = baseSizePX * 0.05; // Daha küçük kenar boşluğu
+             const maxLeft = window.innerWidth - baseSizePX - margin;
+             bubble.style.left = `${random(margin, maxLeft)}px`;
+
+             const type = getRandomBubbleType(); bubble.dataset.color = type.color; bubble.dataset.points = type.points; bubble.dataset.type = type.type;
+             if (type.text) bubble.textContent = type.text;
+
+             const speedMultiplier = 1 + (0.7 * (INITIAL_TIME - timeLeft) / INITIAL_TIME); // Daha makul zorluk artışı
+             const sizeFactor = 1 - ((sizeVW - BUBBLE_MIN_SIZE_VW) / (BUBBLE_MAX_SIZE_VW - BUBBLE_MIN_SIZE_VW)) * 0.35; // Büyükler %35 yavaş
+             const speed = random(BUBBLE_MIN_SPEED, BUBBLE_MAX_SPEED) * speedMultiplier * sizeFactor;
+
+             const bubbleData = { id: bubbleId, element: bubble, speed: Math.max(speed, 0.9), /* Min hız */ size: baseSizePX, popped: false, points: type.points, type: type.type, color: window.getComputedStyle(bubble).backgroundColor };
+             bubblesOnScreen.set(bubbleId, bubbleData);
+
+             const popHandler = (event) => { const touchEvent = event.touches ? event.touches[0] : event; handlePop(touchEvent, bubbleId); };
+             bubble.addEventListener('touchstart', popHandler, { passive: true }); bubble.addEventListener('mousedown', popHandler);
+
+             gameArea.appendChild(bubble);
+         }
+
+        function handlePop(event, bubbleId, isChainReaction = false) { /* Çoğunlukla aynı, titreme koşulları farklı */
+             const bubbleData = bubblesOnScreen.get(bubbleId);
+             if (!bubbleData || bubbleData.popped) return;
+             bubbleData.popped = true;
+
+             const bubbleElement = bubbleData.element; const points = bubbleData.points; const bubbleType = bubbleData.type;
+             const clientX = event.clientX; const clientY = event.clientY;
+             const rect = bubbleElement.getBoundingClientRect();
+             const bubbleCenterX = rect.left + rect.width / 2; const bubbleCenterY = rect.top + rect.height / 2;
+
+             let currentMultiplier = 1;
+             if (!isChainReaction) currentMultiplier = updateCombo();
+             else currentMultiplier = Math.min(comboCount, MAX_COMBO_MULTIPLIER) || 1;
+
+             createParticles(bubbleCenterX, bubbleCenterY, bubbleData.color);
+
+             let scoreToAdd = 0; let isTimeAwarded = false; let isPenaltyApplied = false;
+             let shouldShake = false; // Titreme bayrağı
+
+             if (bubbleType === 'gold') { /* Aynı */
+                 timeLeft += points; if (timeLeft > 99) timeLeft = 99; timerDisplay.textContent = timeLeft + 's'; isTimeAwarded = true;
+                 showScorePopup(points, clientX, clientY, true); if (timeLeft > 10) timerBoard.classList.remove('timer-warning');
+             } else if (bubbleType === 'bomb') { /* Aynı, titreme sonda */
+                 scoreToAdd = points * currentMultiplier; isPenaltyApplied = points < 0;
+                 showScorePopup(scoreToAdd, clientX, clientY, false, currentMultiplier > 1, isPenaltyApplied);
+                 shouldShake = true; // Bomba her zaman titretir
+                 // Zincirleme reaksiyon (Aynı)
+                 bubblesOnScreen.forEach((otherBubbleData, otherId) => { /* ... */
+                     if (otherId !== bubbleId && !otherBubbleData.popped && otherBubbleData.element.parentNode) {
+                         const otherElement = otherBubbleData.element; const otherRect = otherElement.getBoundingClientRect();
+                         const otherCenterX = otherRect.left + otherRect.width / 2; const otherCenterY = otherRect.top + otherRect.height / 2;
+                         const distance = getDistance(bubbleCenterX, bubbleCenterY, otherCenterX, otherCenterY);
+                         if (distance < BOMB_RADIUS + otherRect.width / 2) {
+                             setTimeout(() => {
+                                 const fakeEvent = { clientX: otherCenterX, clientY: otherCenterY }; handlePop(fakeEvent, otherId, true);
+                             }, random(40, 130));
+                         }
+                     }
+                 });
+             } else { /* Normal, Bonus, Ceza */
+                 scoreToAdd = points * currentMultiplier; isPenaltyApplied = points < 0;
+                 showScorePopup(scoreToAdd, clientX, clientY, false, currentMultiplier > 1, isPenaltyApplied);
+                 // Yüksek kombo + yüksek puan titretir
+                 if (!isPenaltyApplied && currentMultiplier >= 3 && scoreToAdd > 30) {
+                    shouldShake = true;
+                 }
+             }
+
+             // Skoru Güncelle
+             if (!isTimeAwarded) { score += scoreToAdd; if (score < 0) score = 0; scoreDisplay.textContent = score; }
+
+             // Titremeyi uygula
+             if (shouldShake) triggerScreenShake();
+
+             // Animasyon ve Kaldırma (Animasyon süresi 0.3s)
+             bubbleElement.classList.add('popped'); bubbleElement.textContent = ''; // Yazıyı hemen temizle
+             setTimeout(() => { removeBubble(bubbleId, true); }, 300); // Animasyon süresine göre
+         }
+
+        function moveBubbles() { /* Öncekiyle aynı */
+             if (isGameOver) return;
+             const gameAreaHeight = gameArea.clientHeight;
+             const bubbleIds = Array.from(bubblesOnScreen.keys());
+             bubbleIds.forEach(bubbleId => {
+                 const bubbleData = bubblesOnScreen.get(bubbleId);
+                 if (!bubbleData || bubbleData.popped) return;
+                 const bubble = bubbleData.element; if (!bubble.parentNode) { bubblesOnScreen.delete(bubbleId); return; }
+                 let currentBottom = parseFloat(bubble.style.bottom); currentBottom += bubbleData.speed;
+                 if (currentBottom > gameAreaHeight + bubbleData.size) { // Ekran dışına tamamen çıkınca kaldır
+                     removeBubble(bubbleId, false);
+                 } else { bubble.style.bottom = `${currentBottom}px`; }
+             });
+         }
+
+
+        // --- Oyun Döngüsü ve Zamanlayıcı ---
+        function updateTimer() { /* Öncekiyle aynı */
+            timeLeft--; timerDisplay.textContent = timeLeft + 's';
+            if (timeLeft <= 10 && timeLeft > 0) timerBoard.classList.add('timer-warning'); else timerBoard.classList.remove('timer-warning');
+            if (timeLeft <= 0) { endGame(); } else {
+                const progress = (INITIAL_TIME - timeLeft) / INITIAL_TIME;
+                // Doğrusal zorluk artışı daha dengeli olabilir
+                const currentSpawnRate = BUBBLE_SPAWN_RATE_START - progress * (BUBBLE_SPAWN_RATE_START - BUBBLE_SPAWN_RATE_END);
+                clearInterval(bubbleInterval);
+                bubbleInterval = setInterval(createBubble, Math.max(currentSpawnRate, BUBBLE_SPAWN_RATE_END));
+            }
+        }
+        function gameLoop() { /* Öncekiyle aynı */ moveBubbles(); if (!isGameOver) animationFrameId = requestAnimationFrame(gameLoop); }
+
+        // --- Oyun Durumları ---
+        function startGame() { /* Öncekiyle aynı */
+            score = 0; timeLeft = INITIAL_TIME; isGameOver = false; resetCombo();
+            gameArea.querySelectorAll('.bubble, .score-popup, .particle').forEach(el => el.remove());
+            bubblesOnScreen.clear(); bubbleCounter = 0;
+            scoreDisplay.textContent = score; timerDisplay.textContent = timeLeft + 's'; timerBoard.classList.remove('timer-warning'); comboBoard.classList.remove('visible', 'pulse');
+            startScreen.classList.add('hidden'); gameOverScreen.classList.add('hidden');
+            if (animationFrameId) cancelAnimationFrame(animationFrameId); clearInterval(timerInterval); clearInterval(bubbleInterval); clearTimeout(comboResetTimer); clearTimeout(shakeTimeout); gameContainer.classList.remove('shake'); // Başlarken titremeyi durdur
+            timerInterval = setInterval(updateTimer, 1000);
+            setTimeout(createBubble, 150); setTimeout(createBubble, 500); // Başlangıç balonları
+            bubbleInterval = setInterval(createBubble, BUBBLE_SPAWN_RATE_START);
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+        function endGame() { /* Öncekiyle aynı */
+            if (isGameOver) return; isGameOver = true;
+            if (animationFrameId) cancelAnimationFrame(animationFrameId); clearInterval(timerInterval); clearInterval(bubbleInterval); clearTimeout(comboResetTimer); clearTimeout(shakeTimeout); gameContainer.classList.remove('shake'); // Biterken titremeyi durdur
+            timerBoard.classList.remove('timer-warning'); comboBoard.classList.remove('visible', 'pulse');
+            if (score > highScore) { highScore = score; localStorage.setItem('bubblePopHighScoreV4r', highScore); }
+            updateHighScoreDisplay(); finalScoreDisplay.textContent = score; gameOverScreen.classList.remove('hidden');
+            bubblesOnScreen.forEach(bubbleData => {
+                if (bubbleData.element.parentNode) {
+                    bubbleData.element.style.transition = 'opacity 0.5s ease'; bubbleData.element.style.opacity = '0';
+                    setTimeout(() => { if(bubbleData.element.parentNode) bubbleData.element.parentNode.removeChild(bubbleData.element); }, 500);
+                }
+            }); bubblesOnScreen.clear();
+        }
+
+        // --- Olay Dinleyicileri ---
+        startButton.addEventListener('click', startGame); restartButton.addEventListener('click', startGame);
+        developerButton.addEventListener('click', showDeveloperModal); closeModalButton.addEventListener('click', hideDeveloperModal);
+        developerModal.addEventListener('click', (event) => { if (event.target === developerModal) hideDeveloperModal(); });
+
+        // --- Başlangıç ---
+        updateHighScoreDisplay();
+
+    </script>
+</body>
+</html>
